@@ -1,0 +1,105 @@
+#!/bin/sh
+
+#
+# Name    : git-rejoin
+# Created : 2010-16-11
+# Author  : cwilper
+# Purpose : Creates a new, combined repository from two previously split ones.
+#
+# Usage   : git-rejoin newer-repo older-repo combo-repo
+#
+# Details : The combined repository will have all objects and refs from both
+#           repositories, and will be grafted via the oldest commit in the newer
+#           repo and the newest commit on the older repo.
+#
+
+pushd . > /dev/null
+
+usage() {
+    echo "Usage: git-rejoin newer-repo older-repo combo-repo"
+    popd > /dev/null
+    exit 1
+}
+
+dir_must_exist() {
+    if [ ! -d "$1" ]; then
+        echo "No such directory: $1" 1>&2
+        popd > /dev/null
+        exit 1
+    fi
+}
+
+copy_dir() {
+    dir_must_exist "$1"
+    dir_must_exist `dirname "$2"`
+    cp -a "$1" "$2"
+    if [ $? != 0 ]; then
+        echo "Failed to copy '$1' to '$2'" 1>&2
+        popd > /dev/null
+        exit 1
+    fi
+}
+
+get_first_line() {
+    retval=`$1 | head -n 1`
+    if [ $? != 0 ]; then
+        echo "Command failed: $1" 1>&2
+        popd > /dev/null
+        exit 1
+    fi
+}
+
+[[ $# -eq 3 ]] || usage
+
+newer_workdir="$1"
+older_workdir="$2"
+combo_workdir="$3"
+
+dir_must_exist "$newer_workdir/.git"
+dir_must_exist "$older_workdir/.git"
+
+if [ -d "$combo_workdir" ]; then
+    while true; do
+        read -p "Overwrite existing directory '$combo_workdir' (y/n)? " yn
+        case $yn in
+            [Yy]* ) rm -rf "$combo_workdir"; break;;
+            [Nn]* ) echo "Cancelled."; popd; exit;;
+            * ) echo "Please answer yes or no";;
+        esac
+    done
+fi
+
+echo "Creating '$combo_workdir'"
+
+copy_dir "$newer_workdir" "$combo_workdir"
+
+# Determine graft_child (oldest commit of newer repo)
+cd "$combo_workdir"
+get_first_line "git log master --pretty=format:%H --reverse"
+graft_child=$retval
+popd > /dev/null
+
+pushd . > /dev/null
+# Determine graft_parent (most recent commit of older repo)
+cd "$older_workdir"
+get_first_line "git log master --pretty=format:%H"
+graft_parent=$retval
+
+# Pack older repo objects and refs
+git repack -a 2> /dev/null
+git pack-refs --all 2> /dev/null
+
+popd > /dev/null
+
+# Copy older repo's packed objects and refs to combined repo
+mkdir "$combo_workdir/.git/objects/pack" 2> /dev/null
+cp "$older_workdir"/.git/objects/pack/* "$combo_workdir/.git/objects/pack"
+grep -v \/master$ "$older_workdir/.git/packed-refs" \
+| grep -v ^# >> "$combo_workdir/.git/packed-refs"
+
+# Finally, add the child-parent graft to the combined repo
+echo "$graft_child $graft_parent" >> "$combo_workdir/.git/info/grafts"
+
+echo "Done."
+
+exit 0

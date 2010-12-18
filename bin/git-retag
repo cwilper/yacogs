@@ -1,0 +1,48 @@
+#!/bin/sh
+
+# Name : git-retag
+# Created : 2010-12-11
+# Author : cwilper
+# Purpose : Replaces an existing git annotated or signed tag with a new,
+# signed one, using the original tagger name, email address,
+# tag date, and 1-line message.
+#
+# Usage: git-retag oldname newname
+#
+# WARNING: This is a quick and dirty script with no absolutely no error
+# checking -- be careful! It works for me, but might break
+# stuff for you. Back up your repository before using, etc..
+#
+# NOTICE : This script was written to help clean up old tags during a
+# migration to git. It is not intended, though possible, to
+# use on a repository people have already pulled from.
+# If you do use it on such a repository, but sure to
+# "git push --tags" and have people "git fetch -t"
+#
+# Q: Why not just use git tag -f newname oldname as suggested
+# in the git-tag manpage?
+#
+# A: Because it doesn't really rewrite the internal name
+# of the annotated tag object. If you use git tag -f,
+# you will still see evidence of the old name when using
+# 'git describe' or 'git show'. In addition, tools that look at
+# the internal name (like git bash completion) will still show the
+# old name, which sucks.
+#
+
+name=`git show $1 | head -n 2 | tail -n 1 | sed 's/^Tagger: \(.*\) <\(.*\)>/\1/'`
+email=`git show $1 | head -n 2 | tail -n 1 | sed 's/^Tagger: \(.*\) <\(.*\)>/\2/'`
+date=`git show $1 | head -n 3 | tail -n 1 | sed 's/^Date: \(.*\)/\1/'`
+comment=`git show $1 | head -n 5 | tail -n 1`
+commit=`git show $1 | grep '^commit ........................................$' | sed 's/commit //'`
+
+export GIT_COMMITTER_NAME="$name"
+export GIT_COMMITTER_EMAIL="$email"
+export GIT_COMMITTER_DATE="$date"
+
+git tag -d $1
+git tag -asm "$comment" $2 $commit
+
+unset GIT_COMMITTER_NAME
+unset GIT_COMMITTER_EMAIL
+unset GIT_COMMITTER_DATE
