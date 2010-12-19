@@ -1,0 +1,59 @@
+#!/bin/sh
+
+#
+# Name    : git-abandon-remote
+# Created : 2010-12-18
+# Author  : cwilper
+# Purpose : Localizes all untracked remote refs, then forgets a remote repository.
+#
+# Usage   : git-abandon-remote <name>
+#
+
+pushd . > /dev/null
+
+usage() {
+    echo "Usage: git-abandon-remote <workdir> <remote-name>"
+    popd > /dev/null
+    exit 1
+}
+
+dir_must_exist() {
+    if [ ! -d "$1" ]; then
+        echo "No such directory: $1" 1>&2
+        popd > /dev/null
+        exit 1
+    fi
+}
+
+[[ $# -eq 2 ]] || usage
+
+workdir="$1"
+remote_name="$2"
+
+dir_must_exist "$workdir/.git"
+
+cd "$workdir"
+
+# make sure all refs are in .git/packed-refs, for easy processing
+git pack-refs --all
+
+cd .git
+
+# drop all remote refs that are already tracked
+heads=`grep refs\/heads\/ packed-refs | sed "s/.*heads\///"`
+for head in $heads; do
+    grep -v refs\/remotes\/$remote_name\/$head\$ packed-refs > .tmp
+    mv .tmp packed-refs
+done
+
+# localize all remaining remote refs
+sed "s/\(.* refs\/\)remotes\/$remote_name\/\(.*\)\$/\1heads\/\2/" packed-refs > .tmp
+mv .tmp packed-refs
+
+# finally, remove the remote
+cd ..
+git remote rm $remote_name
+
+popd > /dev/null
+
+exit 0
